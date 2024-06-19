@@ -1,29 +1,531 @@
 ---
-title: "arrests_final_proj"
+title: "Arrests Data Analysis in Burlington, VT: DS 2870 Final Project"
+author: "Anna Rees"
 output: html_document
-date: "2024-06-17"
+date: "`r Sys.Date()`"
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r setup, message = FALSE, echo = T}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = F,
+                      message = F,
+                      fig.align = "center")
+
+# load in the libraries to be used
+pacman::p_load(tidyverse, 
+               skimr,
+               ggtext,
+               viridis,
+               class, 
+               skimr, 
+               caret, 
+               rpart, 
+               rpart.plot,
+               regclass,
+               broom,
+               GGally)
+  
 ```
 
-## R Markdown
+# I.	Introduction 
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+## Data Description:
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+**The Arrests.csv file is a file of about 26,000 (25,917) arrests made in Burlington, Vermont from Jan 1, 2012 to January 8, 2024.** 
 
-```{r cars}
-summary(cars)
+This dataset was created by the Burlington Vermont police department, and is sourced from the Burlington Data hub. This is an observational study of all arrests made in the 12 year scope of this dataset, so there is no sampling done. The data was created by the police reports given, so all information is detailed from the perspective of the reporting officer. As a resident of Burlington, I find it interesting to understand how local law enforcement and crime has changed over time. This dataset is uniquely interesting because it allows us to explore trends in law enforcement and crime over time in a specific city. Systematic racism is an undeniable aspect of our society, and this is most evident in Law enforcement and arrests across the United States -- with Vermont being no exception. For this reason, I am omitting demographic information (race, ethnicity, and gender) from the dataset to avoid bias from the results for the purpose of this analysis. 
+
+The variables provided in the dataset are:
+
+1) **incident_number:** STR The unique string identifier for the incident
+2) **arrest_date:** Date of the event in "YEAR-MM-DD HR:MN:SC" format.
+3) **gender:** Gender of the offender
+4) **race:** Race of the offender 
+5) **age:** Age at the time of arrest
+6) **charge:** Name and code of the charge 
+7) **most_serious:** [UNCLEAR]
+8) **ethnicity:** Offender's ethnicity
+9) **felony:** Boolean of whether or not the charge is a felony
+10) **violent:** Boolean of whether or not the crime was violent
+11) **category:** Type of crime committed
+12) **arrest_type:** Type of arrest
+13) **ObjectId:** The unique Integer identifier for the incident
+
+**mutated/ added features:**
+
+1) **Date:** Date of the arrest in YYYY-MM-DD format
+2) **Time:** Time of the arrest in HH:MM:SS format
+3) **Hour:** Hour of the arrest, as an integer (0-23)
+
+In order to appropriately assess this data, it must be loaded and cleaned. I removed the feature "most serious" as it was unclear what the purpose of this feature was, and separated out the arrest_date feature into date and time. I then selected only the features I felt were important to the analysis: ObjectId, Date, Time, category, violent, felony, charge, age, gender. I then filtered out any nan time or charge rows, since these are the essential variables in question.
+
+## Loading and Cleaning the data
+
+```{r loading and cleaning}
+
+# Read the data and perform the necessary transformations
+arrests <- read.csv("Arrests.csv", stringsAsFactors = TRUE) %>%
+  # Separate arrest_date into Date, year, and Time features
+  mutate(Date = as.Date(arrest_date, format = "%Y-%m-%d %H:%M:%S"),
+         Time = format(as.POSIXct(arrest_date, format = "%Y-%m-%d %H:%M:%S"), "%H:%M:%S"),
+         year = as.integer(format(as.POSIXct(arrest_date, format = "%Y-%m-%d %H:%M:%S"), "%Y")),
+         Hour = as.integer(format(as.POSIXct(Time, format="%H:%M:%S"), "%H"))) %>%
+  # Select only the important features
+  select(ObjectId, Date, Time, Hour, category, violent, felony, charge, age, year) %>%
+  # Remove rows with missing values
+  drop_na() %>% 
+  # set logic vars to factors
+  mutate(felony = as.factor(felony),
+         violent = as.factor(violent))
+  
+
+# Display the cleaned dataset
+str(arrests)
+
 ```
 
-## Including Plots
+# II.	Data Visualizations
 
-You can also embed plots, for example:
+Write R code to create some relevant descriptive graphs, using techniques that we’ve used in class (ggplot, maybe dplyr). About 4 or 5 graphs should be plenty, depending on complexity. 
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+For each graph and numerical summary, write a short description above the graph describing what the graph will be and what variables it will represent along with the purpose of the graph. Then below it, write a paragraph or two summarizing what you see, and suggesting some implications. For example, describe patterns that you observe in a graph, and suggest why they make sense, given what you know about the subject, or if they are unexpected. Do you think there is a cause-effect relationship between any variables?  Explain your reasoning.
+
+
+## Crime category over time - line plot
+This graph is exploring the number of arrests per year for different categories of crime
+
+```{r type of crime vs age}
+
+# aggregating data by yr and cat
+crime_vs_age <- arrests %>% 
+  group_by(year, category) %>% 
+  summarise(count = n()) %>% 
+  ungroup()
+
+crime_vs_age_plot <- ggplot(crime_vs_age, 
+                            aes(x = year, y = count, color = category)) +
+  geom_line(size = 1) +
+  scale_x_continuous(breaks = 2012:2024) + 
+  labs(title = "Crime Category Over Time",
+       x = "Year",
+       y = "Number of Arrests",
+       color = "Crime Category") +
+  scale_color_viridis_d() +
+    theme(
+      plot.title = element_text(hjust = 0.5), # Center the title
+      legend.position = "top", # Place legend at the top
+      legend.title = element_blank(), # Remove legend title
+      legend.direction = "horizontal"
+    )
+
+crime_vs_age_plot
+
+```
+This line plot demonstrates the trend in types of crime over time. The trends in this plot may be interesting because it reflects the changes in crime being arrested for over time, so increases and decreases suggest changing and/or emerging social problems or law enforcement priorities in the city. The most common crime committed across all years is property related crime, but this trends down as we get closer to present day. Since 2024 data collection is ongoing, the counts for this year are obviously incomplete, and that is why there is a downturn in crime rates for this year specifically.
+
+## Arrests by time of day - density plot
+I next will generate a density plot to show the distribution of arrests throughout the day. 
+```{r arrests by TOD}
+
+arrests_by_TOD <- ggplot(arrests, aes(x = Hour)) +
+  geom_density(fill = "purple", alpha = 0.7) +
+  scale_x_continuous(breaks = 0:23) +
+  labs(title = "Arrests by Time of Day",
+       x = "Hour of Day",
+       y = "Density") +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  ) 
+
+arrests_by_TOD
+
+
+```
+There appears to be a downturn in crime rates between the hours of 2-10 am, with the fewest arrests occuring at 6 in the morning. The most arrests occur in the afternoon, with a peak at 15 (3 pm). 
+
+## When do each category of crime typically occur during the day? - Boxplot
+I will create a boxplot depicting each category of crime and their quartile distribution of the time of day they typically occur, by the hour
+```{r boxplot}
+
+box_plot <- ggplot(arrests, aes(x = category, y = Hour)) +
+  geom_boxplot(fill = "lightblue", color = "darkblue") +
+  scale_y_continuous(breaks = 0:23) +  # Set y-axis to show each hour 
+  labs(title = "Time of Day for Different Crime Categories",
+       x = "Crime Category",
+       y = "Hour of Day (0-23)") +
+  theme(axis.text.x = element_text(angle = 45, 
+                                   hjust = 1),
+        plot.title = element_text(hjust = 0.5)
+        )
+
+box_plot
+
+```
+Based on this boxplot, there is little variation in the median hour of the day for arrests based on the crime type. That being said, driving related arrests tend to occur later than other kinds of arrests, but with a relatively wide spread in times. Warrant or court-order arrests tend to occur slightly earlier than other arrests, based on the median time.
+
+## Proportion of violent vs non-violent crimes - bar chart
+
+I am next curious to determine if the proportion of violent vs nonviolent crime has changed over the years, using a stacked bar chart.
+```{r violent_vs_nonviolent}
+
+# Calculate proportions by year and violent status
+violent_crime_proportion_year <- arrests %>%
+  group_by(year, violent) %>%
+  summarise(count = n()) %>%
+  mutate(proportion = count / sum(count))
+
+# creating the stacked bar plot
+violence_prop_plot <- ggplot(violent_crime_proportion_year, aes(x = year, y = proportion, fill = factor(violent, labels = c("Non-Violent", "Violent")))) +
+  geom_bar(stat = "identity", position = "fill") +
+  scale_fill_manual(values = c("grey", "red")) +
+  labs(title = "Proportion of Violent vs Non-Violent Crimes by Year",
+       x = "Year",
+       y = "Proportion",
+       fill = "Crime Type") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  theme(
+    plot.title = element_text(hjust = 0.5), # Center the title
+    legend.position = "top", # Place legend at the top
+    legend.title = element_blank(), # Remove legend title
+    legend.direction = "horizontal"
+  )
+
+violence_prop_plot
+
+```
+Based on this plot, there appears to be an uptick in violent crime between 2018 and 2022, with this upward trend finally breaking in 2023. It would be interesting in future work to investigate what societal changes are occurring during this time, especially with the COVID-19 pandemic in mind, that increased the proportion of violent crime during this time.
+
+## What time of day experiences the most violent crime? - bar plot
+Does the time of day have any indication into the likelihood of a violent crime? 
+```{r violence by TOD}
+# Calculate the density of arrests by hour for both violent and non-violent crimes
+density_data <- arrests %>%
+  group_by(Hour, violent) %>%
+  summarise(count = n()) %>%
+  group_by(Hour) %>%
+  mutate(total_count = sum(count),
+         density = count / total_count * 100)
+
+# Plot the densities for both violent and non-violent crimes
+violence_by_TOD <- ggplot(density_data, aes(x = Hour, y = density, fill = factor(violent))) +
+  geom_bar(stat = "identity", position = "fill") +
+  scale_fill_manual(values = c("grey", "red"), labels = c("Non-Violent", "Violent")) +
+  labs(title = "Violence by Time of Day",
+       x = "Hour of Day",
+       y = "Density (%)") +
+  scale_x_continuous(breaks = 0:23) +
+  theme(
+    plot.title = element_text(hjust = 0.5), # Center the title
+    legend.position = "top", # Place legend at the top
+    legend.title = element_blank(), # Remove legend title
+    legend.direction = "horizontal"
+  )
+
+violence_by_TOD
+```
+The proportion of violent vs nonviolent crime does not appear to follow a trend based on the time of day. That being said, 6 am seems to have the lowest proportion violent crime compared to any other time. While there is slight variation in the proportions of violent crime throughout a given day, it is relatively consistent.
+
+# III.	Machine Learning Methods
+
+## Multiple Linear Regression
+
+### Predicting the time of the offense by other factors
+Using a linear model, I am interested in predicting the time of arrest based on the other factors. Based on the kinds of charge, the year it occured, and other features in the data, is it possible to accurately predict the time of day of the arrest?
+
+First, I want to train the lm based on different possible features, and determine which model is the most accurate. I will fit several linear models with the following names and explanatory variables:
+
+1) 'hour_lm1': category + violent + felony + age + Date + year
+2) 'hour_lm2': category + violent + felony + age
+3) 'hour_lm3': category + violent + felony 
+4) 'hour_lm4': category
+5) 'hour_lm5': category + age + Date + year
+6) 'hour_lm6': age + Date + year
+7) 'hour_lm7': age + violent
+
+Note, I have omitted "charge" as a feature. Since there are so many levels to the factor (237 different charges in the dataset), the train and test data is unable to split where all charges are represented. 
+
+I will first split the dataset into training and testing groups
+```{r linear models}
+set.seed(123)
+# Split data into training and testing sets
+train_index <- createDataPartition(arrests$Hour, p = 0.7, list = FALSE)
+train_data <- arrests[train_index, ]
+test_data <- arrests[-train_index, ]
+
+
+# Fit the linear models based on different explanatory variables
+hour_lm1 <- lm(Hour ~ category + violent + felony + age + Date + year, data = train_data) # most features
+hour_lm2 <- lm(Hour ~ category + violent + felony + age, data = train_data) # category, violence, age
+hour_lm3 <- lm(Hour ~ category + violent + felony, data = train_data) # category, violence
+hour_lm4 <- lm(Hour ~ category, data = train_data) # only age, hour, year
+hour_lm5 <- lm(Hour ~ category + age + Date + year, data = train_data)
+hour_lm6 <- lm(Hour ~ age + Date + year, data = train_data)
+hour_lm7 <- lm(Hour ~ age + violent, data = train_data)
+
+# Assessing the models
+model_assessment <- bind_rows(
+  .id = "model",
+  "hour_lm1" = glance(hour_lm1),
+  "hour_lm2" = glance(hour_lm2),
+  "hour_lm3" = glance(hour_lm3),
+  "hour_lm4" = glance(hour_lm4),
+  "hour_lm5" = glance(hour_lm5),
+  "hour_lm6" = glance(hour_lm6),
+  "hour_lm7" = glance(hour_lm7)
+) %>%
+  dplyr::select(model, n_predictors = df, r.squared, sigma) %>%
+  mutate(r.squared = round(r.squared, 4),
+         sigma = round(sigma, 0)) %>%
+  gt::gt()
+
+model_assessment
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+All of the models had the same sigma, but the 1st, 2nd, and 5th models created had the highest R^2 at 0.0152, 0.0144, and 0.0147 respectively. When the r squared value is closer to 1, this indicates a better fit so the model explains a large portion of the variance in the given variables. 
+
+
+```{r predictions}
+hour_preds <- tibble(
+  hour = test_data$Hour,
+  hour1 = predict(object = hour_lm1, newdata = test_data),
+  hour2 = predict(object = hour_lm2, newdata = test_data),
+  hour5 = predict(object = hour_lm5, newdata = test_data)
+)
+
+tibble(hour_preds)
+
+```
+
+Calculating the R2 and MAE for the test data:
+
+```{r R2 and MAE}
+Model = c("hour1", "hour2", "hour5")
+
+# Calculate R-squared for each model
+r_squared <- tibble(
+  Model = Model,
+  R_squared = c(
+    cor(test_data$Hour, hour_preds$hour1)^2,
+    cor(test_data$Hour, hour_preds$hour2)^2,
+    cor(test_data$Hour, hour_preds$hour5)^2
+  )
+)
+
+# Calculate sigma for each model
+sigma <- tibble(
+  Model = Model,
+  Sigma = c(
+    sqrt(sum((test_data$Hour - hour_preds$hour1)^2) / nrow(test_data)),
+    sqrt(sum((test_data$Hour - hour_preds$hour2)^2) / nrow(test_data)),
+    sqrt(sum((test_data$Hour - hour_preds$hour5)^2) / nrow(test_data))
+  )
+)
+
+# Calculate MAE for each model
+mae <- tibble(
+  Model = Model,
+  MAE = c(
+    sum(abs(test_data$Hour - hour_preds$hour1)) / nrow(test_data),
+    sum(abs(test_data$Hour - hour_preds$hour2)) / nrow(test_data),
+    sum(abs(test_data$Hour - hour_preds$hour5)) / nrow(test_data)
+  )
+)
+
+# Combine the results into a single data frame
+test_results <- bind_rows(r_squared, sigma, mae)
+
+# Display the results
+test_results
+
+```
+- lm5 has the highest R2 at 0.0116 which indicates best fit
+- lm5 has the lowest sigma at 6.8410 which indicates better accuracy
+- lm2 has the lowest MAE value, which indicates best accuracy
+
+Since lm5 performed the best in 2/3 metrics, I will pursue lm5 for the residual plot.
+
+```{r residual plot}
+
+# Predictions on test data using hour_lm5
+hour_preds <- predict(hour_lm5, newdata = test_data)
+
+# Calculate residuals
+residuals <- test_data$Hour - hour_preds
+
+# Create a data frame for plotting
+residual_plot_data <- tibble(
+  Hour = test_data$Hour,
+  Residuals = residuals
+)
+
+# Create the residual plot
+residual_plot <- ggplot(residual_plot_data, aes(x = Hour, y = Residuals)) +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    x = "Actual Hour of Arrest",
+    y = "Residuals",
+    title = "Residual Plot for hour_lm5 Model"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+residual_plot
+
+```
+Based on the residuals, this linear model does **not** accurately predict hour of arrest. There is a very clear strong positive linear relationship between the residuals and the hour of arrest, which violates the linear assumption. There is one outliter near the 2 hour of arrest, which suggests this observation had a different residual than expected.
+
+## Regression trees
+
+I want to be able to predict the time of day (hour) an arrest occurred using the most important features, as determined by the linear models made above: category + age + Date + year
+
+### Fitting the full tree
+```{r full tree}
+arrests_reg <- arrests %>% 
+  dplyr::select(Hour, category, age, Date, year)
+
+# splitting into test and train
+train_index <- createDataPartition(arrests_reg$Hour, p = 0.7, list = FALSE)
+train_data <- arrests_reg[train_index, ]
+test_data <- arrests_reg[-train_index, ]
+
+arrest_tree_full <- 
+  rpart(
+    formula = Hour ~ .,
+    data = train_data,
+    method = "anova",
+    minsplit = 2,
+    minbucket = 1,
+    cp = -1
+  )
+
+arrest_tree_full$cptable %>% 
+  data.frame() %>% 
+  tail(n = 10)
+
+```
+
+### Finding the pruning Point
+```{r prune point}
+
+# finding xerror cutoff: min(xerror) + xstd
+arrest_tree_full$cptable %>% 
+  data.frame() %>% 
+  #find row w smallest xerror
+  slice_min(xerror, n = 1, with_ties = F) %>% 
+  # using muatate to create xerror + xs
+  mutate(xerror_cutoff = xerror + xstd) %>% 
+  # using pull to get xerror cutoff as a single numeric val
+  pull(xerror_cutoff) ->
+  xcutoff
+
+# Now we find the cp value to prune the tree:
+arrest_tree_full$cptable %>% 
+  data.frame() %>% 
+  # use fitler to pick rows less than xcutoff val
+  filter(xerror < xcutoff) %>% 
+  # use slice to keep the fitrst row
+  slice(1) %>% 
+  # SAVE CP VAL
+  pull(CP) ->
+  prune_cp
+
+c("The CP value is:", round(prune_cp, 4))
+
+```
+### Pruning and Plotting
+
+```{r prune n plot}
+# pruning...
+prune(tree = arrest_tree_full,
+      cp = prune_cp) ->
+  arrest_tree
+
+# plotting...
+rpart.plot(arrest_tree, 
+           digits = 4,
+           fallen.leaves = FALSE,
+           type = 5, 
+           extra = 101,
+           box.palette = 'BlGnYl')
+
+```
+
+### Variable Importance
+
+```{r var importance}
+caret::varImp(arrest_tree) |> 
+  arrange(desc(Overall)) |> 
+  rownames_to_column(var = "variable") |> 
+  
+  ggplot(mapping = aes(x = fct_reorder(variable, -Overall),
+                       y = Overall)) + 
+  
+  geom_col(fill = "purple",
+           color = "black") + 
+  
+  labs(title = "Variable Importance in Regression Tree for Arrest Time of Day",
+       x = NULL,
+       y = "Variable Importance") + 
+  
+  scale_y_continuous(expand = c(0, 0, 0.05, 0)) +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+
+
+```
+When predicting the time of day an arrest occured, the 3 most important features are the age of the offender, the date of the offense, and the year the offense occurred. 
+
+### Predicting hour on test data
+
+I want to use both the pruned and full trees to predict the hour of arrest for the testing set
+```{r prediction}
+# full tree
+predict(
+  object = arrest_tree_full,
+  newdata = test_data
+) ->
+  full_tree_pred
+
+# pruned tree
+predict(
+  object = arrest_tree,
+  newdata = test_data
+) ->
+  pruned_tree_pred
+
+# Combine the predictions with the actual prices in the test dataset
+test_results <- test_data %>%
+  mutate(full_tree_pred = full_tree_pred,
+         pruned_tree_pred = pruned_tree_pred,
+         actual_hour = test_data$Hour)
+
+# Calculate R^2 for the full tree
+R2_full_tree <- cor(test_results$full_tree_pred, test_results$actual_hour)^2
+
+# Calculate R^2 for the pruned tree
+R2_pruned_tree <- cor(test_results$pruned_tree_pred, test_results$actual_hour)^2
+
+# Output the R^2 values
+c("Full tree R2:", round(R2_full_tree, 4))
+c("Pruned tree R2:", round(R2_pruned_tree, 4))
+
+
+```
+Surprisingly, the full tree performed better than the pruned tree. This may be because the full tree has a higher training accuracy, which was an asset to minimize training error and capturing all patterns and relationships in the data. The pruned tree may have lost some of that detail that outweigh any benefits it provided to over-fitting. 
+
+# IV.	Conclusions
+
+The goal of my project was the evaluate the arrest data for the city of Burlington, VT to gain insights into patterns of arrest, especially focusing on the time of day arrests occur. A linear regression model proved to be unhelpful in gaining insight into this, but generating the linear models enabled me to determine what features were most valuable to this model, and I took these and used them for a regression tree. This regression tree was more enlightening, and helped to determine that age was the most important factor when trying to determine the time of day an arrest may occur
+
+# V.	Limitations / Recommendations
+
+My study had several inherent limitations. Firstly, the data was limited to arrests in Burlington, BY, which may not be representative of broader trends in arrests for other regions. Additionally, the data contained many categorical variables with varied levels such as the charge feature, which created some complexity and limitations in the train/test split.
+
+In the future, expanding the dataset to multiple cities or regions could help gain insight into more generalizeable arrest trends. Like what was mentioned before, it would be interesting in future work to investigate what societal changes are occurring during the time of this study, especially with the COVID-19 pandemic in mind, that may have influenced the arrests in the area.
+
+
+
